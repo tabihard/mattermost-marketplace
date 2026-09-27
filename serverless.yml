@@ -1,0 +1,60 @@
+service: mattermost-marketplace-selfhosted
+
+frameworkVersion: '>=3.36.0 <4.0.0'
+
+provider:
+  name: aws
+  stage: ${opt:stage, 'dev'}
+  # us-east-1 is required if you later attach a custom domain / ACM certificate to the
+  # CloudFront distribution below (ACM certs for CloudFront must live in us-east-1).
+  region: us-east-1
+  runtime: provided.al2023
+  architecture: x86_64
+  timeout: 5
+  memorySize: 512
+
+package:
+  individually: true
+
+functions:
+  server:
+    handler: bootstrap # newer runtimes require that the binary name is bootstrap and present in the root of the zip
+    # Proxy all HTTP requests to the lambda function
+    events:
+      - http:
+          path: /{proxy+}
+          method: any
+    package:
+      artifact: dist/mattermost-marketplace.zip # override the default artifact to point to the zip file we packaged
+
+resources:
+  Resources:
+    CloudFrontDistribution:
+      Type: AWS::CloudFront::Distribution
+      Properties:
+        DistributionConfig:
+          Comment: Marketplace Cache
+          DefaultCacheBehavior:
+            TargetOriginId: Marketplace
+            ViewerProtocolPolicy: 'redirect-to-https'
+            DefaultTTL: 30
+            ForwardedValues:
+              QueryString: true
+              QueryStringCacheKeys:
+                - filter 
+                - per_page
+                - page
+                - server_version
+          Enabled: true
+          Origins:
+            - Id: Marketplace
+              DomainName:
+                Fn::Join:
+                  - "."
+                  - - Ref: ApiGatewayRestApi
+                    - execute-api.us-east-1.amazonaws.com
+              OriginPath: /${self:provider.stage}
+              CustomOriginConfig:
+                HTTPPort: 80
+                HTTPSPort: 443
+                OriginProtocolPolicy: https-only

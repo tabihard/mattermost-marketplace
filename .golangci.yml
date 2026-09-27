@@ -1,0 +1,60 @@
+service:
+  golangci-lint-version: 1.49.0 # Keep this in sync with .circleci/config.yml
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters-settings:
+  goconst:
+    min-len: 2
+    min-occurrences: 2
+  gofmt:
+    simplify: true
+  goimports:
+    local-prefixes: github.com/mattermost/mattermost-marketplace
+  govet:
+    shadow: true
+    enable-all: true
+    disable:
+      - fieldalignment
+  misspell:
+    locale: US
+
+linters:
+  disable-all: true
+  enable:
+    # - bodyclose
+    # - depguard
+    - dogsled
+    - dupl
+    - errcheck
+    # - funlen
+    # - gochecknoinits
+    - goconst
+    - gocritic
+    - gocyclo
+    - gofmt
+    - goimports
+    - gosimple      # Linter for Go source code that specializes in simplifying a code
+    - gosec
+    - gosimple
+    - govet
+    - ineffassign
+    # - lll
+    - misspell
+    - nakedret
+    - revive
+    - staticcheck
+    - stylecheck
+    - typecheck
+    - unconvert
+    - unparam
+    - unused
+    - whitespace
+
+issues:
+  max-same-issues: 10
+  max-per-linter: 10
+  exclude:
+    - "G107: Potential HTTP request made with variable url"
