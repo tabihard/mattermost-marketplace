@@ -127,6 +127,124 @@ System Admins will then see the Marketplace tab in System Console → Plugin Man
 $ serverless remove --stage production
 ```
 
+## Self-hosting via Docker / GHCR (e.g. Raspberry Pi + k0s)
+
+The `Dockerfile` in this repo builds a small, distroless image around the standalone `cmd/marketplace` server. It cross-compiles cleanly for `linux/arm64` (Raspberry Pi) as well as `linux/amd64`.
+
+### Build locally
+
+```
+$ make docker-build
+$ docker run --rm -p 8085:8085 ghcr.io/manybugsdev/mattermost-marketplace:dev
+```
+
+Override the target repo/tag with `IMAGE_REPO` / `IMAGE_TAG`, e.g. `IMAGE_REPO=ghcr.io/<you>/mattermost-marketplace make docker-build`.
+
+### Build and push a multi-arch image (amd64 + arm64) to GHCR
+
+```
+$ docker login ghcr.io -u <github-username>
+$ IMAGE_REPO=ghcr.io/<you>/mattermost-marketplace IMAGE_TAG=latest make docker-push
+```
+
+`make docker-push` uses `docker buildx` to build and push `linux/amd64` and `linux/arm64` variants under one tag, so a Raspberry Pi can `docker pull`/`k0s ctr images pull` the same tag as an x86 machine.
+
+### Automating the GHCR push with GitHub Actions
+
+Claude Code's GitHub App is not permitted to modify files under `.github/workflows` directly, so this workflow isn't included as a committed file in this PR. Add it yourself as `.github/workflows/ghcr-publish.yml`:
+
+```yaml
+name: Publish Container Image
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+```
+
+This publishes multi-arch images to `ghcr.io/<owner>/<repo>` on every push to `main` (and on tags), using the repo's built-in `GITHUB_TOKEN` — no extra secrets needed. Make sure the package's visibility/linkage is set as desired in the repo's Packages settings after the first push.
+
+### Deploying to k0s (e.g. on a Raspberry Pi)
+
+Once the image is on GHCR, a minimal Deployment + Service looks like:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mattermost-marketplace
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: mattermost-marketplace }
+  template:
+    metadata:
+      labels: { app: mattermost-marketplace }
+    spec:
+      containers:
+        - name: marketplace
+          image: ghcr.io/<owner>/mattermost-marketplace:latest
+          ports:
+            - containerPort: 8085
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mattermost-marketplace
+spec:
+  selector: { app: mattermost-marketplace }
+  ports:
+    - port: 80
+      targetPort: 8085
+  type: NodePort
+```
+
+`plugins.json` is baked into the image at build time, so the deployment is stateless — no volumes or database required. Point Mattermost's `MarketplaceUrl` at the resulting NodePort/Ingress address, as described above.
+
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE). Based on [mattermost/mattermost-marketplace](https://github.com/mattermost/mattermost-marketplace).
