@@ -83,6 +83,23 @@ plugins.json:
 	@echo "This command is deprecated. Use go run ./cmd/generator/ add instead."
 	go run ./cmd/generator --database plugins.json --debug
 
+## Container image settings (used by docker-build / docker-push)
+IMAGE_REPO ?= ghcr.io/manybugsdev/mattermost-marketplace
+IMAGE_TAG ?= $(BUILD_TAG)
+
+## Build a container image for the current platform (local testing)
+.PHONY: docker-build
+docker-build:
+	docker build --build-arg BUILD_UPSTREAM_URL=$(BUILD_UPSTREAM_URL) -t $(IMAGE_REPO):$(IMAGE_TAG) .
+
+## Build and push a multi-arch (amd64/arm64, e.g. Raspberry Pi) image to a registry such as ghcr.io.
+## Requires `docker buildx` and being logged in to the target registry (e.g. `docker login ghcr.io`).
+.PHONY: docker-push
+docker-push:
+	docker buildx build --platform linux/amd64,linux/arm64 \
+		--build-arg BUILD_UPSTREAM_URL=$(BUILD_UPSTREAM_URL) \
+		-t $(IMAGE_REPO):$(IMAGE_TAG) --push .
+
 ## Clean all generated files
 .PHONY: clean
 clean:
